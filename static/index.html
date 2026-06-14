@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deteksi Tumor Otak - VGG16</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f5;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 600px;
+            width: 100%;
+            background: white;
+            border-radius: 24px;
+            padding: 28px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        h1 {
+            color: #1e3c72;
+            margin-bottom: 8px;
+        }
+        .sub {
+            color: #2a5298;
+            margin-bottom: 24px;
+            font-size: 0.9rem;
+        }
+        .upload-area {
+            border: 2px dashed #aaa;
+            border-radius: 20px;
+            padding: 30px 20px;
+            background: #fafafa;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .upload-area:hover {
+            background: #eef2ff;
+            border-color: #2a5298;
+        }
+        .upload-area input {
+            display: none;
+        }
+        .preview {
+            margin-top: 20px;
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            display: none;
+        }
+        button {
+            background: #1e3c72;
+            color: white;
+            border: none;
+            padding: 12px 28px;
+            border-radius: 40px;
+            font-size: 1rem;
+            font-weight: bold;
+            margin-top: 20px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        button:hover {
+            background: #0f2b4f;
+            transform: scale(1.02);
+        }
+        button:disabled {
+            background: #9aaebf;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 24px;
+            padding: 16px;
+            border-radius: 20px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            background: #e9ecef;
+            display: none;
+        }
+        .tumor {
+            background: #f8d7da;
+            color: #721c24;
+            border-left: 8px solid #dc3545;
+        }
+        .non-tumor {
+            background: #d4edda;
+            color: #155724;
+            border-left: 8px solid #28a745;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #1e3c72;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        footer {
+            margin-top: 32px;
+            font-size: 0.75rem;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🧠 Deteksi Tumor Otak</h1>
+    <div class="sub">VGG16 Fine-tuned | Upload MRI scan</div>
+
+    <div class="upload-area" id="uploadArea">
+        <p>📂 Klik atau tarik gambar ke sini</p>
+        <p style="font-size:12px; color:gray;">Format: JPG, PNG (maks 5MB)</p>
+        <input type="file" id="fileInput" accept="image/jpeg,image/png">
+    </div>
+
+    <img id="preview" class="preview" alt="Preview">
+
+    <button id="predictBtn" disabled>🔍 Deteksi Tumor</button>
+
+    <div id="result" class="result"></div>
+    <footer>Model: VGG16 | Hasil prediksi hanya untuk referensi</footer>
+</div>
+
+<script>
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    const preview = document.getElementById('preview');
+    const predictBtn = document.getElementById('predictBtn');
+    const resultDiv = document.getElementById('result');
+
+    let selectedFile = null;
+
+    // Trigger file input
+    uploadArea.addEventListener('click', () => fileInput.click());
+    uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadArea.style.backgroundColor = '#eef2ff';
+    });
+    uploadArea.addEventListener('dragleave', () => {
+        uploadArea.style.backgroundColor = '#fafafa';
+    });
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.style.backgroundColor = '#fafafa';
+        if (e.dataTransfer.files.length) {
+            fileInput.files = e.dataTransfer.files;
+            handleFileSelect(e.dataTransfer.files[0]);
+        }
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) handleFileSelect(e.target.files[0]);
+    });
+
+    function handleFileSelect(file) {
+        if (!file.type.startsWith('image/')) {
+            alert('Harap pilih file gambar!');
+            return;
+        }
+        selectedFile = file;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            preview.src = e.target.result;
+            preview.style.display = 'block';
+            predictBtn.disabled = false;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    predictBtn.addEventListener('click', async () => {
+        if (!selectedFile) return;
+
+        predictBtn.disabled = true;
+        predictBtn.innerHTML = '<span class="loading"></span> Memproses...';
+
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+
+        try {
+            const response = await fetch('/predict', {
+                method: 'POST',
+                body: formData
+            });
+            if (!response.ok) throw new Error('Gagal memproses gambar');
+            const data = await response.json();
+
+            if (data.success) {
+                let className = data.label === 'Tumor' ? 'tumor' : 'non-tumor';
+                let icon = data.label === 'Tumor' ? '⚠️' : '✅';
+                resultDiv.innerHTML = `
+                    <div style="font-size:1rem;">${icon} <strong>${data.label}</strong></div>
+                    <div style="font-size:0.9rem; margin-top:8px;">Keyakinan: ${data.confidence}%</div>
+                `;
+                resultDiv.className = `result ${className}`;
+                resultDiv.style.display = 'block';
+            } else {
+                throw new Error('Respon tidak valid');
+            }
+        } catch (err) {
+            resultDiv.innerHTML = `❌ Error: ${err.message}`;
+            resultDiv.className = 'result';
+            resultDiv.style.display = 'block';
+        } finally {
+            predictBtn.disabled = false;
+            predictBtn.innerHTML = '🔍 Deteksi Tumor';
+        }
+    });
+</script>
+</body>
+</html>
